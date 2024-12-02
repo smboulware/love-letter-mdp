@@ -1,6 +1,15 @@
 import gym
 from gym import spaces
 import numpy as np
+import random
+
+def draw_card(num_cards, remaining):
+    if np.sum(remaining) > 0:  # Ensure there are cards left in the deck
+        random_card = np.random.choice(len(remaining), p=remaining / np.sum(remaining))
+        remaining[random_card] -= 1
+        return random_card
+    else:
+        return None
 
 class LoveLetter(gym.Env):
     """Custom POMDP Environment"""
@@ -8,7 +17,8 @@ class LoveLetter(gym.Env):
     
     def __init__(self):
         super(LoveLetter, self).__init__()
-        num_cards = 8
+        num_cards = 8 # num of unique cards
+        total_cards = 16 # total cards in the deck
         seed = 184
         # Define action and observation spaces
         
@@ -21,16 +31,16 @@ class LoveLetter(gym.Env):
             "remaining" : spaces.MultiDiscrete(np.full(num_cards, 2))}, seed=seed)
         
         # Hidden state (true position of the agent, not directly observable)
-        self.state = None
-        
-        # Target state
-        self.target_state = 100
+        remaining = [5, 2, 2, 2, 2, 1, 1, 1]
+        self.state = dict({"p1 card" : draw_card(remaining), "p2 card" : draw_card(remaining), 
+            "p3 card" : draw_card(remaining), "p4 card" : draw_card(remaining), 
+            "remaining" : remaining})
         
         # Step counter
         self.step_count = 0
-        self.max_steps = 50  # TODO: max number of turns in the game
+        self.max_steps = total_cards
     
-    def step(self, action):
+    def step(self, action): # TODO
         """
         Executes a step in the environment.
         """
@@ -63,7 +73,7 @@ class LoveLetter(gym.Env):
         
         return observation, reward, done, info
     
-    def reset(self):
+    def reset(self): #TODO
         """
         Resets the environment to an initial state.
         """
