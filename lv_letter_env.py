@@ -60,7 +60,7 @@ class LoveLetterEnv(gym.Env):
         card_index, target = action
 
         # Reset protection statuses at the start of each turn
-        self.protected = [False] * self.num_players
+        self.protected[self.num_players] = False
 
         # Play the chosen card and get feedback
         played_card = self.hands[self.current_player].pop(card_index)
@@ -72,17 +72,26 @@ class LoveLetterEnv(gym.Env):
             self.winner = 0 if len(self.hands[0]) > 0 else 1  # Determine the winner
             return self._get_observation(), reward, terminated, False, {"feedback": feedback, "winner": self.winner}
 
-        # Draw a new card if the deck is not empty
+        # Run next player's turn
+        self.current_player = (self.current_player + 1) % self.num_players
+        opp_action, opp_terminated, opp_truncated = self._run_opp()
+        self.current_player = (self.current_player + 1) % self.num_players
+        
+        if opp_terminated:
+            self.winner = 0 if len(self.hands[0]) > 0 else 1  # Determine the winner
+            terminated = True
+            return self._get_observation(), reward, terminated, False, {"feedback": feedback, "winner": self.winner}
+        if opp_truncated:
+            self.winner = self._determine_truncated_winner()
+            truncated = True
+            return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
+        
+        # Draw a new card if the deck is not empty, otherwise end
         if self.deck:
             self.hands[self.current_player].append(self.deck.pop())
-
-        # Advance to the next player
-        self.current_player = (self.current_player + 1) % self.num_players
-
-        # Check for truncation (deck runs out)
-        truncated = len(self.deck) == 0
-        if truncated:
+        else:
             self.winner = self._determine_truncated_winner()
+            truncated = True
             return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
 
         # Return updated observation, reward, and status flags
@@ -196,6 +205,41 @@ class LoveLetterEnv(gym.Env):
             5: "Prince", 6: "King", 7: "Countess", 8: "Princess"
         }
         return card_details.get(card_id, "Unknown")
+    
+    def _run_opp(self):
+        """Run opponent's turn"""
+        # Draw a new card if the deck is not empty, otherwise end
+        if self.deck:
+            self.hands[self.current_player].append(self.deck.pop())
+        else:
+            return None, False, True 
+        
+        # Determine action
+        hand = self.hands[self.current_player]
+        card_index = random.randint(0, 1)
+        # Always target the opponent unless they are protected
+        if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
+            if hand[card_index] == 5 and self.protected[0]:
+                target = self.current_player
+            else:
+                target = 0
+        # Guess randomly from the remaining cards (TODO: could be changed to guess largest of most frequent)
+        guess = 0
+        if hand[card_index] == 1:
+            filtered_list = [x for x in self.deck if x != 1]
+            if filtered_list:
+                guess = random.choice(filtered_list)
+            else:
+                guess = 2
+        
+        # Play the chosen card and get feedback
+        played_card = self.hands[self.current_player].pop(card_index)
+        self.discard_piles[self.current_player].append(played_card)
+        # TODO: adjust apply_action to include guess
+        reward, feedback, terminated = self._apply_action(played_card, target)
+        
+        return (played_card, target, guess), terminated, False
+        
 
 
 # ------------------------------
