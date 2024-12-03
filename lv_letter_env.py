@@ -22,7 +22,7 @@ class LoveLetterEnv(gym.Env):
     def __init__(self):
         super(LoveLetterEnv, self).__init__()
 
-        self.num_players = 2
+        self.num_players = 4
         self.num_cards = 16
         self.action_space = spaces.Tuple((
             spaces.Discrete(2+1, start=-1),  # Card index to play
@@ -52,6 +52,7 @@ class LoveLetterEnv(gym.Env):
         # Initialize discard piles and protection statuses
         self.discard_piles = np.zeros((self.num_players, 7), dtype=np.int32)
         self.protected = [False] * self.num_players
+        self.active = [True] * self.num_players
         self.current_player = -1
         self.winner = None  # Track the winner
 
@@ -62,6 +63,7 @@ class LoveLetterEnv(gym.Env):
         return {
             "hand": np.array(self.hands[self.current_player], dtype=np.int32),
             "public_state": np.array(self.protected, dtype=np.int32),
+            "active_players": np.array(self.active, dtype=np.int32),
             "discard_piles": np.array(self.discard_piles, dtype=np.int32),
         }
 
@@ -97,7 +99,7 @@ class LoveLetterEnv(gym.Env):
         valid = True
 
         # 1. Only Guard (card 1) selects Guess (others must have guess = 0)
-        if (card == 1 and guess == 0) or (card != 1 and guess != 0):
+        if (card == 1 and (guess == 0 or guess == 1)) or (card != 1 and guess != 0):
             valid = False
 
         # 2. Only Prince (5) can target themselves (others must have target != self.current_player)
@@ -110,6 +112,9 @@ class LoveLetterEnv(gym.Env):
 
         # 4. Must play Countess if you have Prince and King in hand
         if 7 in hand and (5 in hand or 6 in hand) and card != 7:
+            valid = False
+            
+        if self.active[target] == False:
             valid = False
 
         return valid
@@ -126,6 +131,7 @@ class LoveLetterEnv(gym.Env):
 
         if not self._action_valid(card_index, target, guess):
             reward = -100
+            self.active[self.current_player] = False
             return self._get_observation(), reward, True, False, {"feedback": "Player eliminated by invalid move", "winner": 1 if self.current_player == 0 else 0}
 
         # Apply the action
@@ -157,6 +163,7 @@ class LoveLetterEnv(gym.Env):
             guessed_card = guess
             if not self.protected[target] and guessed_card in self.hands[target]:
                 self.hands[target].remove(guessed_card)  # Target is eliminated
+                self.active[target] = False
                 feedback = f"Player {target} is eliminated because their card ({self._get_card_name(guessed_card)}) was guessed."
                 terminated = self._is_game_terminated()  # Check termination immediately
             else:
@@ -172,9 +179,11 @@ class LoveLetterEnv(gym.Env):
         elif card == 3:  # Baron
             if not self.protected[target]:
                 if self.hands[self.current_player][0] > self.hands[target][0]:
+                    self.active[target] = False
                     eliminated_card = self.hands[target].pop(0)  # Target is eliminated
                     feedback = f"Player {target} is eliminated by Baron. Their card ({self._get_card_name(eliminated_card)}) was weaker."
                 else:
+                    self.active[self.current_player] = False
                     eliminated_card = self.hands[self.current_player].pop(0)  # Current player is eliminated
                     feedback = f"Player is eliminated by Baron. Player's card ({self._get_card_name(eliminated_card)}) was weaker."
                 terminated = self._is_game_terminated()  # Check termination immediately
@@ -191,6 +200,7 @@ class LoveLetterEnv(gym.Env):
             else:
                 discarded_card = self.hands[target].pop(0) if self.hands[target] else None
                 if discarded_card == 8:  # Princess discarded
+                    self.active[target] = False
                     feedback = f"Player {target} discarded the Princess and is eliminated!"
                     self.hands[target] = []  # Eliminate the player
                     terminated = self._is_game_terminated()  # Check termination immediately
@@ -210,6 +220,7 @@ class LoveLetterEnv(gym.Env):
             feedback = "Countess is discarded. No additional effect."
 
         elif card == 8:  # Princess
+            self.active[self.current_player] = False
             self.hands[self.current_player] = []  # Current player eliminated
             feedback = "You are eliminated for discarding the Princess."
             terminated = self._is_game_terminated()  # Check termination immediately
@@ -231,7 +242,10 @@ class LoveLetterEnv(gym.Env):
         """Run opponent's turn"""
         # Determine action
         hand = self.hands[self.current_player]
-        card_index = random.randint(0, 1)
+        if 8 in hand:
+            card_index = (hand.index(8) + 1) % 2
+        else:
+            card_index = random.randint(0, 1)
         # Always target the opponent unless they are protected
         target = -1
         if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
@@ -290,6 +304,10 @@ def human_vs_random_ai():
     print("Welcome to Love Letter! Your goal is to either eliminate AI-1 or have the highest card at the end.\n")
 
     while True:  # Run until the game ends
+        if env.active[(env.current_player + 1) % env.num_players] == False:
+            env.current_player = (env.current_player + 1) % env.num_players
+            next
+            
         print("\n" + "-" * 50)  # Separation between turns
 
         #TODO In training, this should be included in the step function. Here, it is required to get the updated hand info
@@ -299,6 +317,7 @@ def human_vs_random_ai():
             print("\nYour Turn!")
             print(f"Your hand: {[f'{i}: {env._get_card_name(c)}' for i, c in enumerate(obs['hand'])]}")
             print(f"Public state (protection status): {['Protected' if p else 'Unprotected' for p in obs['public_state']]}")
+            print(f"Active players: {['Yes' if p else 'No' for p in obs['active_players']]}")
             print(format_discard_piles(env, obs['discard_piles']))
 
             print("Players: 0: You, 1: AI-1")
@@ -343,8 +362,9 @@ def human_vs_random_ai():
             obs, reward, terminated, truncated, info = env.step((card_index, target, guess))
             print(f"Your remaining hand: {[f'{i}: {env._get_card_name(c)}' for i, c in enumerate(obs['hand'])]}")
         else:  # AI's turn
-            print("\nOpponent's Turn!")
+            print(f"\nOpponent {env.current_player}'s Turn!")
             print(f"Public state (protection status): {['Protected' if p else 'Unprotected' for p in obs['public_state']]}")
+            print(f"Active players: {['Yes' if p else 'No' for p in obs['active_players']]}")
             print(f"Discard pile: {format_discard_piles(env, obs['discard_piles'])}")
             obs, reward, terminated, truncated, info = env.step((-1, -1, 0))  # AI logic handled in step
 
@@ -352,7 +372,7 @@ def human_vs_random_ai():
         print(info["feedback"])
         if "winner" in info:
             print("\nGame Over!")
-            print(f"{'You' if info['winner'] == 0 else 'AI'} wins!")
+            print(f"Player {info['winner']} wins!")
             break
 
 if __name__ == "__main__":
