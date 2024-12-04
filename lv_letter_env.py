@@ -2,6 +2,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import random
+from collections import Counter
 
 # ------------------------------
 # LoveLetterEnv Class Definition
@@ -42,7 +43,7 @@ class LoveLetterEnv(gym.Env):
         # Initialize the deck
         self.deck = [1] * 5 + [2] * 2 + [3] * 2 + [4] * 2 + [5] * 2 + [6] * 1 + [7] * 1 + [8] * 1
         random.shuffle(self.deck)
-        self.deck.pop()
+        self.facedown_card = self.deck.pop()
 
         # Round plus one everything human turn
         self.round = -1
@@ -98,24 +99,40 @@ class LoveLetterEnv(gym.Env):
         card = hand[card_index]
 
         valid = True
+        # print(f"{card} {target} {guess}")
 
         # 1. Only Guard (card 1) selects Guess (others must have guess = 0)
         if (card == 1 and (guess == 0 or guess == 1)) or (card != 1 and guess != 0):
+            # print("1")
             valid = False
 
         # 2. Only Prince (5) can target themselves (others must have target != self.current_player)
         if card != 5 and target == self.current_player:
+            # print("2")
             valid = False
 
         # 3. Handmaid (4), Countess (7), and Princess (8) don't have targets (target must be -1)
         if card in [4, 7, 8] and target != -1:
+            # print("3")
             valid = False
 
         # 4. Must play Countess if you have Prince and King in hand
         if 7 in hand and (5 in hand or 6 in hand) and card != 7:
+            # print("4")
             valid = False
             
+        # 5. Must target an active player    
         if target > -1 and self.active[target] == False:
+            # print("5")
+            valid = False
+
+        # 6. Cannot target a protected player unless all are protected
+        if all(not active or protected for idx, (active, protected) in enumerate(zip(self.active, self.protected)) if idx != self.current_player):
+            if card == 5 and target != self.current_player:
+                # print("6")
+                valid = False
+        elif target > -1 and self.protected[target] == True:
+            # print("7")
             valid = False
 
         return valid
@@ -132,14 +149,21 @@ class LoveLetterEnv(gym.Env):
 
         if not self._action_valid(card_index, target, guess):
             reward = -100
+            #TODO put both cards in discard pile
             card = self.hands[self.current_player].pop(card_index)
             self.discard_piles[self.current_player, self.round] = card
-            self.hands[target] = []
+            self.hands[self.current_player] = []
             self.active[self.current_player] = False
             terminated = self._is_game_terminated()
+            truncated = len(self.deck) == 0
             if terminated:
                 self.winner = self._determine_terminated_winner()
+                print("Terminated")
                 return self._get_observation(), reward, terminated, False, {"feedback": "Player eliminated by invalid move", "winner": self.winner}
+            elif truncated:
+                print("Truncated")
+                self.winner = self._determine_truncated_winner()
+                return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
             else:
                 return self._get_observation(), reward, terminated, False, {"feedback": "Player eliminated by invalid move"}
 
@@ -148,12 +172,14 @@ class LoveLetterEnv(gym.Env):
 
         # If the game is terminated immediately, return the result
         if terminated:
+            print("Terminated")
             self.winner = self._determine_terminated_winner()
             return self._get_observation(), reward, terminated, False, {"feedback": feedback, "winner": self.winner}
 
         # Check for truncation (deck runs out)
         truncated = len(self.deck) == 0
         if truncated:
+            print("Truncated")
             self.winner = self._determine_truncated_winner()
             return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
         
@@ -218,7 +244,7 @@ class LoveLetterEnv(gym.Env):
                     self.hands[target] = []  # Eliminate the player
                     terminated = self._is_game_terminated()  # Check termination immediately
                 else:
-                    new_card = self.deck.pop() if self.deck else None
+                    new_card = self.deck.pop() if self.deck else self.facedown_card
                     self.discard_piles[target, self.round] = discarded_card
                     self.hands[target].append(new_card)
                     feedback = f"Player {target} discarded {self._get_card_name(discarded_card)} and drew {self._get_card_name(new_card)}."
@@ -245,6 +271,7 @@ class LoveLetterEnv(gym.Env):
     def _determine_truncated_winner(self):
         """Determine the winner when the game ends due to truncation."""
         final_cards = [x[0] if x else -1 for x in self.hands]
+        print(f"Final cards: {final_cards}")
         return np.argmax(final_cards) # Compare card values
     
     def _determine_terminated_winner(self):
@@ -260,27 +287,58 @@ class LoveLetterEnv(gym.Env):
         """Run opponent's turn"""
         # Determine action
         hand = self.hands[self.current_player]
+        # print(hand)
         if 8 in hand:
             card_index = (hand.index(8) + 1) % 2
+        elif 7 in hand:
+            if 5 in hand or 6 in hand:
+                card_index = hand.index(7)
+            else:
+                card_index = (hand.index(7) + 1) % 2
+        elif 6 in hand:
+            card_index = (hand.index(6) + 1) % 2
+        elif 3 in hand:
+            if 5 not in hand:
+                card_index = (hand.index(3) + 1) % 2
+            else:
+                card_index = random.randint(0, 1)
         else:
             card_index = random.randint(0, 1)
-        # Always target the opponent unless they are protected
+        # Determine target
         target = -1
         if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
             if hand[card_index] == 5:
-                options = [index for index, status in enumerate(self.active)]
+                alive = [index for index, status in enumerate(self.active) if status]
+                unprotected = [index for index, status in enumerate(self.protected) if not status]
+                options = [item for item in alive if item in unprotected]
                 target = random.choice(options)
             else:
-                options = [index for index, status in enumerate(self.active) if index != self.current_player]
-                target = random.choice(options)
-        # Guess randomly from the remaining cards (TODO: could be changed to guess largest of most frequent)
+                alive = [index for index, status in enumerate(self.active) if status and index != self.current_player]
+                unprotected = [index for index, status in enumerate(self.protected) if not status and index != self.current_player]
+                if unprotected:
+                    options = [item for item in alive if item in unprotected]
+                    target = random.choice(options)
+                else:
+                    target = random.choice(alive)
+        # Guess the highest value remaining card from the cards with highest multiplicity left
         guess = 0
         if hand[card_index] == 1:
-            filtered_list = [x for x in self.deck if x != 1]
-            if filtered_list:
-                guess = random.choice(filtered_list)
+            filtered_deck = [x for x in self.deck if x != 1]
+            if filtered_deck:
+                counter = Counter(filtered_deck)
+                max_count = max(counter.values())
+                most_frequent_cards = [card for card, count in counter.items() if count == max_count]
+                guess = max(most_frequent_cards)
             else:
                 guess = 2
+
+        # OLD: Guess randomly from the remaining cards
+        # if hand[card_index] == 1:
+        #     filtered_deck = [x for x in self.deck if x != 1]
+        #     if filtered_deck:
+        #         guess = random.choice(filtered_deck)
+        #     else:
+        #         guess = 2
         
         return (card_index, target, guess)
         
