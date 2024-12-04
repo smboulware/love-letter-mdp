@@ -31,9 +31,11 @@ class LoveLetterEnv(gym.Env):
             spaces.Discrete(8+1, start=0) # Guess for guard     
         ))
         self.observation_space = spaces.Dict({
+            "round": spaces.Discrete(16+1, start=-1),
             "hand": spaces.MultiDiscrete([8, 8]),  # Two cards in hand
             "public_state": spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.int32),
-            "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 7), dtype=np.int32)  # Discard piles for both players
+            "active_players": spaces.MultiBinary(self.num_players),
+            "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 16), dtype=np.int32)  # Discard piles for both players
         })
 
         # Initialize game state
@@ -52,7 +54,8 @@ class LoveLetterEnv(gym.Env):
         self.hands = [[self.deck.pop()] for _ in range(self.num_players)]
 
         # Initialize discard piles and protection statuses
-        self.discard_piles = np.zeros((self.num_players, 7), dtype=np.int32)
+        # self.discard_piles = np.zeros((self.num_players, 7), dtype=np.int32)
+        self.discard_piles = [[] for _ in range(self.num_players)]
         self.protected = [False] * self.num_players
         self.active = [True] * self.num_players
         self.current_player = -1
@@ -62,11 +65,16 @@ class LoveLetterEnv(gym.Env):
     
     def _get_observation(self):
         """Get the current player's observation."""
+        padded_discard_piles = [
+            self.discard_piles[player] + [0] * (16 - len(self.discard_piles[player]))
+            for player in range(self.num_players)
+        ]
+
         return {
             "hand": np.array(self.hands[self.current_player], dtype=np.int32),
             "public_state": np.array(self.protected, dtype=np.int32),
             "active_players": np.array(self.active, dtype=np.int32),
-            "discard_piles": np.array(self.discard_piles, dtype=np.int32),
+            "discard_piles": np.array(padded_discard_piles, dtype=np.int32),
         }
 
     def _get_card_name(self, card_id):
@@ -151,7 +159,8 @@ class LoveLetterEnv(gym.Env):
             reward = -100
             #TODO put both cards in discard pile
             card = self.hands[self.current_player].pop(card_index)
-            self.discard_piles[self.current_player, self.round] = card
+            # self.discard_piles[self.current_player, self.round] = card
+            self.discard_piles[self.current_player].append(card)
             self.hands[self.current_player] = []
             self.active[self.current_player] = False
             terminated = self._is_game_terminated()
@@ -174,6 +183,7 @@ class LoveLetterEnv(gym.Env):
         if terminated:
             print("Terminated")
             self.winner = self._determine_terminated_winner()
+            reward = 100 if self.winner == 0 else -100
             return self._get_observation(), reward, terminated, False, {"feedback": feedback, "winner": self.winner}
 
         # Check for truncation (deck runs out)
@@ -181,6 +191,7 @@ class LoveLetterEnv(gym.Env):
         if truncated:
             print("Truncated")
             self.winner = self._determine_truncated_winner()
+            reward = 100 if self.winner == 0 else -100
             return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
         
         # Return updated observation, reward, and status flags
@@ -188,18 +199,22 @@ class LoveLetterEnv(gym.Env):
 
     def _apply_action(self, card_index, target=None, guess=None):
         card = self.hands[self.current_player].pop(card_index)
-        self.discard_piles[self.current_player, self.round] = card
+        # self.discard_piles[self.current_player, self.round] = card
+        self.discard_piles[self.current_player].append(card)
 
         """Apply the effect of the played card."""
+        reward = 0
         feedback = ""
         terminated = False
 
         if card == 1:  # Guard
             guessed_card = guess
             if not self.protected[target] and guessed_card in self.hands[target]:
-                self.discard_piles[target, self.round] = guessed_card
+                # self.discard_piles[target, self.round] = guessed_card
+                self.discard_piles[target].append(guessed_card)
                 self.hands[target].remove(guessed_card)  # Target is eliminated
                 self.active[target] = False
+                reward = 10
                 feedback = f"Player {target} is eliminated because their card ({self._get_card_name(guessed_card)}) was guessed."
                 terminated = self._is_game_terminated()  # Check termination immediately
             else:
@@ -217,12 +232,17 @@ class LoveLetterEnv(gym.Env):
                 if self.hands[self.current_player][0] > self.hands[target][0]:
                     self.active[target] = False
                     eliminated_card = self.hands[target].pop(0)  # Target is eliminated
-                    self.discard_piles[target, self.round] = eliminated_card
+                    # self.discard_piles[target, self.round] = eliminated_card
+                    self.discard_piles[target].append(eliminated_card)
+                    reward = 10
                     feedback = f"Player {target} is eliminated by Baron. Their card ({self._get_card_name(eliminated_card)}) was weaker."
+
                 else:
                     self.active[self.current_player] = False
                     eliminated_card = self.hands[self.current_player].pop(0)  # Current player is eliminated
-                    self.discard_piles[self.current_player, self.round] = eliminated_card
+                    # self.discard_piles[self.current_player, self.round] = eliminated_card
+                    self.discard_piles[self.current_player].append(eliminated_card)
+                    reward = -100
                     feedback = f"Current player is eliminated by Baron. Player's card ({self._get_card_name(eliminated_card)}) was weaker."
                 terminated = self._is_game_terminated()  # Check termination immediately
             else:
@@ -239,13 +259,16 @@ class LoveLetterEnv(gym.Env):
                 discarded_card = self.hands[target].pop(0) if self.hands[target] else None
                 if discarded_card == 8:  # Princess discarded
                     self.active[target] = False
+                    reward = 10
                     feedback = f"Player {target} discarded the Princess and is eliminated!"
-                    self.discard_piles[target, self.round] = 8
+                    # self.discard_piles[target, self.round] = 8
+                    self.discard_piles[target].append(8)
                     self.hands[target] = []  # Eliminate the player
                     terminated = self._is_game_terminated()  # Check termination immediately
                 else:
                     new_card = self.deck.pop() if self.deck else self.facedown_card
-                    self.discard_piles[target, self.round] = discarded_card
+                    # self.discard_piles[target, self.round] = discarded_card
+                    self.discard_piles[target].append(discarded_card)
                     self.hands[target].append(new_card)
                     feedback = f"Player {target} discarded {self._get_card_name(discarded_card)} and drew {self._get_card_name(new_card)}."
 
@@ -261,12 +284,14 @@ class LoveLetterEnv(gym.Env):
 
         elif card == 8:  # Princess
             self.active[self.current_player] = False
-            self.discard_piles[self.current_player, self.round] = 8
+            # self.discard_piles[self.current_player, self.round] = 8
+            self.discard_piles[self.current_player].append(8)
             self.hands[self.current_player] = []  # Current player eliminated
+            reward = -100
             feedback = "You are eliminated for discarding the Princess."
             terminated = self._is_game_terminated()  # Check termination immediately
 
-        return 0, feedback, terminated
+        return reward, feedback, terminated
 
     def _determine_truncated_winner(self):
         """Determine the winner when the game ends due to truncation."""
@@ -419,7 +444,7 @@ def human_vs_random_ai():
             if LoveLetterEnv.CARD_TARGET_REQUIREMENTS[selected_card]:
                 while True:
                     try:
-                        target = int(input(f"Choose a target player (0: You, 1: AI-1): "))
+                        target = int(input(f"Choose a target player (0: You, {', '.join([f'{i+1}: Opponent-{i+1}' for i in range(env.num_players-1)])})"))
                         if 0 <= target < env.num_players:
                             break
                     except ValueError:
