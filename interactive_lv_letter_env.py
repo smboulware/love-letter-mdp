@@ -155,32 +155,6 @@ class LoveLetterEnv(gym.Env):
         return valid
 
     def step(self, action):
-        # Do own turn
-        self.prepare_turn()
-        obs, reward, terminated, truncated, info = self.substep(action)
-        if terminated or truncated:
-            return obs, reward, terminated, truncated, info
-        
-        # Do opponents' turns
-        for i in range(1, self.num_players):
-            if self.active[(self.current_player + 1) % self.num_players] == False:
-                if not any(self.active):
-                    print("error")
-                    break
-                self.current_player = (self.current_player + 1) % self.num_players
-                continue
-            self.prepare_turn()
-            obs, reward, terminated, truncated, info = self.substep(action)
-            if terminated or truncated:
-                return obs, reward, terminated, truncated, info
-            
-        self.current_player = (self.current_player + 1) % self.num_players
-        obs = self._get_observation()
-        self.current_player = (self.current_player - 1) % self.num_players
-        return obs, reward, False, False, {}
-
-
-    def substep(self, action):
         card_index, target, guess = action
 
         if self.current_player == 0:  # Human's turn
@@ -502,14 +476,14 @@ def human_vs_random_ai():
                         print("Invalid input! Please enter a valid number.")
 
             # Execute the action
-            obs, reward, terminated, truncated, info = env.substep((card_index, target, guess))
+            obs, reward, terminated, truncated, info = env.step((card_index, target, guess))
             print(f"Your remaining hand: {[f'{i}: {env._get_card_name(c)}' for i, c in enumerate(obs['hand'])]}")
         else:  # AI's turn
             print(f"\nOpponent {env.current_player}'s Turn!")
             print(f"Public state (protection status): {['Protected' if p else 'Unprotected' for p in obs['public_state']]}")
             print(f"Active players: {['Yes' if p else 'No' for p in obs['active_players']]}")
             print(f"Discard pile: {format_discard_piles(env, obs['discard_piles'])}")
-            obs, reward, terminated, truncated, info = env.substep((-1, -1, 0))  # AI logic handled in step
+            obs, reward, terminated, truncated, info = env.step((-1, -1, 0))  # AI logic handled in step
 
         # Display feedback
         print(info["feedback"])
