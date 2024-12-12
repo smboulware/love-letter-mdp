@@ -48,7 +48,7 @@ class LoveLetterEnv(gym.Env):
         # Initialize game state
         self.reset()
 
-    def reset(self, seed=184):
+    def reset(self, seed=184, options=None):
         # print("resetting")
         # Initialize the deck
         self.deck = [1] * 5 + [2] * 2 + [3] * 2 + [4] * 2 + [5] * 2 + [6] * 1 + [7] * 1 + [8] * 1
