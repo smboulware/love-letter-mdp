@@ -20,7 +20,7 @@ def train_trpo():
     )
 
     # Train the model
-    model.learn(total_timesteps=10000)  # Adjust the number of timesteps based on computational resources
+    model.learn(total_timesteps=50000)  # Adjust the number of timesteps based on computational resources
 
     # Save the model
     model.save("trpo_love_letter")

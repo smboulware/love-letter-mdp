@@ -49,6 +49,7 @@ class LoveLetterEnv(gym.Env):
         self.reset()
 
     def reset(self, seed=184):
+        # print("resetting")
         # Initialize the deck
         self.deck = [1] * 5 + [2] * 2 + [3] * 2 + [4] * 2 + [5] * 2 + [6] * 1 + [7] * 1 + [8] * 1
         random.seed(seed)
@@ -60,15 +61,16 @@ class LoveLetterEnv(gym.Env):
 
         # Each player starts with one card
         self.hands = [[self.deck.pop()] for _ in range(self.num_players)]
+        self.hands[0].append(self.deck.pop())
 
         # Initialize discard piles and protection statuses
         # self.discard_piles = np.zeros((self.num_players, 7), dtype=np.int32)
         self.discard_piles = [[] for _ in range(self.num_players)]
         self.protected = [False] * self.num_players
         self.active = [True] * self.num_players
-        self.current_player = -1
+        self.current_player = 0
         self.winner = None  # Track the winner
-
+        
         return self._get_observation(), {}
     
     def _get_observation(self):
@@ -80,7 +82,7 @@ class LoveLetterEnv(gym.Env):
 
         return {
             "round": self.round,
-            "hand": np.array(self.hands[self.current_player], dtype=np.int32),
+            "hand": np.array([x - 1 for x in self.hands[self.current_player]], dtype=np.int32),
             "public_state": np.array(self.protected, dtype=np.int32),
             "active_players": np.array(self.active, dtype=np.int32),
             "discard_piles": np.array(padded_discard_piles, dtype=np.int32),
@@ -113,8 +115,9 @@ class LoveLetterEnv(gym.Env):
         :return: Boolean
         """
         hand = self.hands[self.current_player]
-        print(self._get_observation())
-        print(card_index)
+        # print(self._get_observation())
+        # print(card_index)
+        # print(target)
         card = hand[card_index]
 
         valid = True
@@ -141,7 +144,6 @@ class LoveLetterEnv(gym.Env):
             valid = False
             
         # 5. Must target an active player    
-        print(target)
         if target > -1 and self.active[target] == False:
             # print("5")
             valid = False
@@ -159,10 +161,12 @@ class LoveLetterEnv(gym.Env):
 
     def step(self, action):
         # Do own turn
-        self.prepare_turn()
         obs, reward, terminated, truncated, info = self.substep(action)
+        if self.active[0] == 0:
+            # print("died")
+            terminated = 1
         if terminated or truncated:
-            return obs, reward, terminated, truncated, info
+            return obs, reward, True, False, info
         
         # Do opponents' turns
         for i in range(1, self.num_players):
@@ -175,11 +179,12 @@ class LoveLetterEnv(gym.Env):
             self.prepare_turn()
             obs, reward, terminated, truncated, info = self.substep(action)
             if terminated or truncated:
-                return obs, reward, terminated, truncated, info
+                return obs, reward, True, False, info
             
-        self.current_player = (self.current_player + 1) % self.num_players
+        self.prepare_turn()
+
         obs = self._get_observation()
-        self.current_player = (self.current_player - 1) % self.num_players
+
         return obs, reward, False, False, {}
 
 
@@ -207,12 +212,12 @@ class LoveLetterEnv(gym.Env):
             truncated = len(self.deck) == 0
             if terminated:
                 self.winner = self._determine_terminated_winner()
-                print("Terminated")
+                # print("Terminated")
                 return self._get_observation(), reward, terminated, False, {"feedback": "Player eliminated by invalid move", "winner": self.winner}
             elif truncated:
-                print("Truncated")
+                # print("Truncated")
                 self.winner = self._determine_truncated_winner()
-                return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
+                return self._get_observation(), reward, False, truncated, {"feedback": "Game ended by truncation", "winner": self.winner}
             else:
                 return self._get_observation(), reward, terminated, False, {"feedback": "Player eliminated by invalid move"}
 
@@ -229,7 +234,7 @@ class LoveLetterEnv(gym.Env):
         # Check for truncation (deck runs out)
         truncated = len(self.deck) == 0
         if truncated:
-            print("Truncated")
+            # print("Truncated")
             self.winner = self._determine_truncated_winner()
             reward = 100 if self.winner == 0 else -100
             return self._get_observation(), reward, False, truncated, {"feedback": feedback, "winner": self.winner}
@@ -336,7 +341,7 @@ class LoveLetterEnv(gym.Env):
     def _determine_truncated_winner(self):
         """Determine the winner when the game ends due to truncation."""
         final_cards = [x[0] if x else -1 for x in self.hands]
-        print(f"Final cards: {final_cards}")
+        # print(f"Final cards: {final_cards}")
         return np.argmax(final_cards) # Compare card values
     
     def _determine_terminated_winner(self):
