@@ -25,14 +25,14 @@ class LoveLetterEnv(gym.Env):
 
         self.num_players = 4
         self.num_cards = 16
-        self.action_space = spaces.Tuple((
-            spaces.Discrete(2+1, start=-1),  # Card index to play
+        self.hidden_action_space = spaces.Tuple((
+            spaces.Discrete(2, start=0),  # Card index to play
             spaces.Discrete(self.num_players+1, start=-1),  # Target player
             spaces.Discrete(8+1, start=0) # Guess for guard     
         ))
         # Convert to MultiDiscrete
-        low = [space.start for space in self.action_space.spaces]  # Lower bounds
-        high = [space.start + space.n - 1 for space in self.action_space.spaces]  # Upper bounds
+        low = [space.start for space in self.hidden_action_space.spaces]  # Lower bounds
+        high = [space.start + space.n - 1 for space in self.hidden_action_space.spaces]  # Upper bounds
 
         # Flatten into a MultiDiscrete space
         self.action_space = spaces.MultiDiscrete([high[i] - low[i] + 1 for i in range(len(low))])
@@ -113,6 +113,8 @@ class LoveLetterEnv(gym.Env):
         :return: Boolean
         """
         hand = self.hands[self.current_player]
+        print(self._get_observation())
+        print(card_index)
         card = hand[card_index]
 
         valid = True
@@ -139,6 +141,7 @@ class LoveLetterEnv(gym.Env):
             valid = False
             
         # 5. Must target an active player    
+        print(target)
         if target > -1 and self.active[target] == False:
             # print("5")
             valid = False
@@ -181,11 +184,11 @@ class LoveLetterEnv(gym.Env):
 
 
     def substep(self, action):
-        card_index, target, guess = action
 
         if self.current_player == 0:  # Human's turn
             self.round += 1
             card_index, target, guess = action
+            target -= 1
         else:  # AI's turn
             # Run the opponent's turn using `_run_opp`
             if len(self.hands[self.current_player]) != 2:
