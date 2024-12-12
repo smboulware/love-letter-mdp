@@ -39,7 +39,7 @@ class LoveLetterEnv(gym.Env):
 
         self.observation_space = spaces.Dict({
             "round": spaces.Discrete(16+1, start=0),
-            "hand": spaces.MultiDiscrete([8, 8], start=[1,1]),  # Two cards in hand
+            "hand":  spaces.Box(low=np.array([1, 1]), high=np.array([8, 8]), dtype=np.int32),
             "public_state": spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.int32),
             "active_players": spaces.MultiBinary(self.num_players),
             "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 16), dtype=np.int32)  # Discard piles for both players
@@ -55,7 +55,7 @@ class LoveLetterEnv(gym.Env):
         # print("resetting")
         # Initialize the deck
         self.deck = [1] * 5 + [2] * 2 + [3] * 2 + [4] * 2 + [5] * 2 + [6] * 1 + [7] * 1 + [8] * 1
-        random.seed(seed)
+        # random.seed(seed)
         random.shuffle(self.deck)
         self.facedown_card = self.deck.pop()
 
