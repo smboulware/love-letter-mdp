@@ -20,7 +20,7 @@ class LoveLetterEnv(gym.Env):
         8: False, # Princess
     }
 
-    def __init__(self):
+    def __init__(self, opponent="Strategy"):
         super(LoveLetterEnv, self).__init__()
 
         self.num_players = 4
@@ -39,11 +39,14 @@ class LoveLetterEnv(gym.Env):
 
         self.observation_space = spaces.Dict({
             "round": spaces.Discrete(16+1, start=0),
-            "hand": spaces.MultiDiscrete([8, 8]),  # Two cards in hand
+            "hand":  spaces.Box(low=np.array([1, 1]), high=np.array([8, 8]), dtype=np.int32),
             "public_state": spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.int32),
             "active_players": spaces.MultiBinary(self.num_players),
             "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 16), dtype=np.int32)  # Discard piles for both players
         })
+
+        assert opponent in ["Random", "Strategy", "RL"]
+        self.opponent = opponent
 
         # Initialize game state
         self.reset()
@@ -52,7 +55,7 @@ class LoveLetterEnv(gym.Env):
         # print("resetting")
         # Initialize the deck
         self.deck = [1] * 5 + [2] * 2 + [3] * 2 + [4] * 2 + [5] * 2 + [6] * 1 + [7] * 1 + [8] * 1
-        random.seed(seed)
+        # random.seed(seed)
         random.shuffle(self.deck)
         self.facedown_card = self.deck.pop()
 
@@ -82,7 +85,7 @@ class LoveLetterEnv(gym.Env):
 
         return {
             "round": self.round,
-            "hand": np.array([x - 1 for x in self.hands[self.current_player]], dtype=np.int32),
+            "hand": np.array([x for x in self.hands[self.current_player]], dtype=np.int32),
             "public_state": np.array(self.protected, dtype=np.int32),
             "active_players": np.array(self.active, dtype=np.int32),
             "discard_piles": np.array(padded_discard_piles, dtype=np.int32),
