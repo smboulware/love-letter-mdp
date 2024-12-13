@@ -25,6 +25,7 @@ class LoveLetterEnv(gym.Env):
 
         self.num_players = 4
         self.num_cards = 16
+        self.prev_actions = [[0,0,0,0,0]] + [[0,0,0]] * (self.num_players - 1)
         self.hidden_action_space = spaces.Tuple((
             spaces.Discrete(2, start=0),  # Card index to play
             spaces.Discrete(self.num_players+1, start=-1),  # Target player
@@ -42,7 +43,8 @@ class LoveLetterEnv(gym.Env):
             "hand":  spaces.Box(low=np.array([1, 1]), high=np.array([8, 8]), dtype=np.int32),
             "public_state": spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.int32),
             "active_players": spaces.MultiBinary(self.num_players),
-            "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 16), dtype=np.int32)  # Discard piles for both players
+            "discard_piles": spaces.Box(low=0, high=8, shape=(self.num_players, 16), dtype=np.int32),  # Discard piles for both players
+            "prev_round_actions": spaces.Box(low=np.array([1, 1, -1, 0, 0]  + [1, -1, 0] * (self.num_players-1)), high=np.array([8, 8, self.num_players, 8, 8] + [8, self.num_players, 8] * (self.num_players-1)), dtype=np.int32) # played card, unplayed card, target, guess, priest info
         })
 
         assert opponent in ["Random", "Strategy", "RL"]
@@ -82,13 +84,13 @@ class LoveLetterEnv(gym.Env):
             self.discard_piles[player] + [0] * (16 - len(self.discard_piles[player]))
             for player in range(self.num_players)
         ]
-
         return {
             "round": self.round,
             "hand": np.array([x for x in self.hands[self.current_player]], dtype=np.int32),
             "public_state": np.array(self.protected, dtype=np.int32),
             "active_players": np.array(self.active, dtype=np.int32),
             "discard_piles": np.array(padded_discard_piles, dtype=np.int32),
+            "prev_round_actions": np.array([item for sublist in self.prev_actions for item in sublist]),
         }
 
     def _get_card_name(self, card_id):
@@ -204,15 +206,19 @@ class LoveLetterEnv(gym.Env):
 
     def substep(self, action):
 
+        hand = self.hands[self.current_player]
+
         if self.current_player == 0:  # Human's turn
             self.round += 1
             card_index, target, guess = action
             target -= 1
+            self.prev_actions[self.current_player] = [hand[card_index], hand[(card_index + 1)%2], target, guess, 0]
         else:  # AI's turn
             # Run the opponent's turn using `_run_opp`
             if len(self.hands[self.current_player]) != 2:
                 print("ERROR")
             card_index, target, guess = self._run_opp()
+            self.prev_actions[self.current_player] = [hand[card_index], target, guess]
 
         if not self._action_valid(card_index, target, guess):
             reward = -100
@@ -282,6 +288,8 @@ class LoveLetterEnv(gym.Env):
         elif card == 2:  # Priest
             if not self.protected[target]:
                 revealed_card = self.hands[target][0] if self.hands[target] else None
+                if self.current_player == 0:
+                    self.prev_actions[self.current_player][4] = revealed_card
                 feedback = f"Player {target}'s hand is revealed: {self._get_card_name(revealed_card)}."
             else:
                 feedback = f"Player {target} is protected by Handmaid."
@@ -446,8 +454,8 @@ class LoveLetterEnv(gym.Env):
             else:
                 alive = [index for index, status in enumerate(self.active) if status and index != self.current_player]
                 unprotected = [index for index, status in enumerate(self.protected) if not status and index != self.current_player]
-                if unprotected:
-                    options = [item for item in alive if item in unprotected]
+                options = [item for item in alive if item in unprotected]
+                if options:
                     target = random.choice(options)
                 else:
                     target = random.choice(alive)
