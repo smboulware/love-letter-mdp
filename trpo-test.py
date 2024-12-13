@@ -18,12 +18,12 @@ def train_trpo():
         gamma=0.99,    # Discount factor for long-term rewards
         use_sde=False,
     )
-
+    total_timesteps = 1000000
     # Train the model
-    model.learn(total_timesteps=100000)  # Adjust the number of timesteps based on computational resources
+    model.learn(total_timesteps=total_timesteps)  # Adjust the number of timesteps based on computational resources
 
     # Save the model
-    model.save("trpo_love_letter")
+    model.save(f"trpo_love_letter_{total_timesteps}")
 
     print("Training complete. Model saved as 'trpo_love_letter'.")
 

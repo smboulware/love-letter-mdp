@@ -3,7 +3,7 @@ from gymnasium import spaces
 import numpy as np
 import random
 from collections import Counter
-from sb3_contrib import TRPO
+from sb3_contrib import TRPO, RecurrentPPO
 
 # ------------------------------
 # LoveLetterEnv Class Definition
@@ -21,10 +21,11 @@ class LoveLetterEnv(gym.Env):
         8: False, # Princess
     }
 
-    def __init__(self, opponent="Strategy"):
+    def __init__(self):
         super(LoveLetterEnv, self).__init__()
 
-        self.ai_policy = TRPO.load("trpo_love_letter")
+        # self.ai_policy = TRPO.load("trpo_love_letter_4env_1000000")
+        self.ai_policy = RecurrentPPO.load("recurrent_ppo_love_letter_1000000")
         self.num_players = 4
         self.num_cards = 16
         self.prev_actions = [[0,0,0,0,0]] * self.num_players
@@ -49,8 +50,6 @@ class LoveLetterEnv(gym.Env):
             "prev_round_actions": spaces.Box(low=np.array([1, 1, -1, 0, 0] * self.num_players), high=np.array([8, 8, self.num_players, 8, 8] * self.num_players), dtype=np.int32) # played card, unplayed card, target, guess, priest info
         })
 
-        assert opponent in ["Random", "Strategy", "RL"]
-        self.opponent = opponent
 
         # Initialize game state
         self.reset()
@@ -223,7 +222,9 @@ class LoveLetterEnv(gym.Env):
             # Run the opponent's turn using `_run_opp`
             if len(self.hands[self.current_player]) != 2:
                 print("ERROR")
+            # card_index, target, guess = self._run_opp()
             card_index, target, guess = self._run_opp_TRPO()
+            # card_index, target, guess = self._run_opp_random()
             
         hand = self.hands[self.current_player]
         self.prev_actions[self.current_player] = [hand[card_index], hand[(card_index + 1)%2], target, guess, 0]
@@ -478,11 +479,11 @@ class LoveLetterEnv(gym.Env):
         obs = self._get_observation()
             
         # Use the trained policy to predict the AI's action
-        action, _ = self.ai_policy.predict(obs, deterministic=True)
+        action, _ = self.ai_policy.predict(obs)
         
         # Decode action into card_index, target, and guess
         card_index, target, guess = action
-        return card_index, target - 1, guess
+        return card_index, target-1 , guess
 
 # ------------------------------
 # Interactive Gameplay Loop

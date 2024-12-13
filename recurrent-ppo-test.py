@@ -22,10 +22,10 @@ def train_ppo():
     )
 
     # Train the model
-    model.learn(total_timesteps=50000)  # Adjust timesteps as needed
+    model.learn(total_timesteps=100000)  # Adjust timesteps as needed
 
     # Save the model
-    model.save("recurrent_ppo_love_letter")
+    model.save("recurrent_ppo_love_letter_100000")
 
     print("Training complete. Model saved as 'recurrent_ppo_love_letter'.")
 
