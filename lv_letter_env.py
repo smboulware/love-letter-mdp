@@ -3,6 +3,7 @@ from gymnasium import spaces
 import numpy as np
 import random
 from collections import Counter
+from sb3_contrib import TRPO
 
 # ------------------------------
 # LoveLetterEnv Class Definition
@@ -23,6 +24,7 @@ class LoveLetterEnv(gym.Env):
     def __init__(self, opponent="Strategy"):
         super(LoveLetterEnv, self).__init__()
 
+        self.ai_policy = TRPO.load("trpo_love_letter")
         self.num_players = 4
         self.num_cards = 16
         self.prev_actions = [[0,0,0,0,0]] * self.num_players
@@ -221,7 +223,7 @@ class LoveLetterEnv(gym.Env):
             # Run the opponent's turn using `_run_opp`
             if len(self.hands[self.current_player]) != 2:
                 print("ERROR")
-            card_index, target, guess = self._run_opp()
+            card_index, target, guess = self._run_opp_TRPO()
             
         hand = self.hands[self.current_player]
         self.prev_actions[self.current_player] = [hand[card_index], hand[(card_index + 1)%2], target, guess, 0]
@@ -471,7 +473,16 @@ class LoveLetterEnv(gym.Env):
             guess = random.randint(2, 8)
 
         return (card_index, target, guess)
+    
+    def _run_opp_TRPO(self):
+        obs = self._get_observation()
+            
+        # Use the trained policy to predict the AI's action
+        action, _ = self.ai_policy.predict(obs, deterministic=True)
         
+        # Decode action into card_index, target, and guess
+        card_index, target, guess = action
+        return card_index, target - 1, guess
 
 # ------------------------------
 # Interactive Gameplay Loop
