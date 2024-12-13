@@ -118,9 +118,12 @@ class LoveLetterEnv(gym.Env):
         :return: Boolean
         """
         hand = self.hands[self.current_player]
+        # print("-----")
+        # print(self.current_player)
         # print(self._get_observation())
         # print(card_index)
         # print(target)
+        # print(self.deck)
         card = hand[card_index]
 
         valid = True
@@ -159,6 +162,11 @@ class LoveLetterEnv(gym.Env):
         elif target > -1 and self.protected[target] == True:
             # print("7")
             valid = False
+            
+        # 7. Must target a player if card requires a target
+        if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
+            if target == -1:
+                valid = False
 
         return valid
 
@@ -181,6 +189,9 @@ class LoveLetterEnv(gym.Env):
                 continue
             self.prepare_turn()
             obs, reward, terminated, truncated, info = self.substep(action)
+            if self.active[0] == 0:
+                # print("died")
+                terminated = 1
             if terminated or truncated:
                 return obs, reward, True, False, info
             
@@ -229,7 +240,7 @@ class LoveLetterEnv(gym.Env):
 
         # If the game is terminated immediately, return the result
         if terminated:
-            print("Terminated")
+            # print("Terminated")
             self.winner = self._determine_terminated_winner()
             reward = 100 if self.winner == 0 else -100
             return self._get_observation(), reward, terminated, False, {"feedback": feedback, "winner": self.winner}
@@ -379,6 +390,10 @@ class LoveLetterEnv(gym.Env):
             card_index = random.randint(0, 1)
         # Determine target
         target = -1
+        # print("-----")
+        # print(self._get_observation())
+        # print(self.current_player)
+        # print(card_index)
         if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
             if hand[card_index] == 5:
                 alive = [index for index, status in enumerate(self.active) if status]
@@ -388,8 +403,8 @@ class LoveLetterEnv(gym.Env):
             else:
                 alive = [index for index, status in enumerate(self.active) if status and index != self.current_player]
                 unprotected = [index for index, status in enumerate(self.protected) if not status and index != self.current_player]
-                if unprotected:
-                    options = [item for item in alive if item in unprotected]
+                options = [item for item in alive if item in unprotected]
+                if options:
                     target = random.choice(options)
                 else:
                     target = random.choice(alive)
@@ -404,15 +419,43 @@ class LoveLetterEnv(gym.Env):
                 guess = max(most_frequent_cards)
             else:
                 guess = 2
-
-        # OLD: Guess randomly from the remaining cards
-        # if hand[card_index] == 1:
-        #     filtered_deck = [x for x in self.deck if x != 1]
-        #     if filtered_deck:
-        #         guess = random.choice(filtered_deck)
-        #     else:
-        #         guess = 2
         
+        return (card_index, target, guess)
+    
+    def _run_opp_random(self):
+        """Run opponent's turn"""
+        # Determine action
+        hand = self.hands[self.current_player]
+        # print(hand)
+
+        if 7 in hand:
+            if 5 in hand or 6 in hand:
+                card_index = hand.index(7)
+            else:
+                card_index = random.randint(0, 1)
+        else:
+            card_index = random.randint(0, 1)
+        # Determine target
+        target = -1
+        if self.CARD_TARGET_REQUIREMENTS[hand[card_index]]:
+            if hand[card_index] == 5:
+                alive = [index for index, status in enumerate(self.active) if status]
+                unprotected = [index for index, status in enumerate(self.protected) if not status]
+                options = [item for item in alive if item in unprotected]
+                target = random.choice(options)
+            else:
+                alive = [index for index, status in enumerate(self.active) if status and index != self.current_player]
+                unprotected = [index for index, status in enumerate(self.protected) if not status and index != self.current_player]
+                if unprotected:
+                    options = [item for item in alive if item in unprotected]
+                    target = random.choice(options)
+                else:
+                    target = random.choice(alive)
+        # Guess randomly from the remaining cards
+        guess = 0
+        if hand[card_index] == 1:
+            guess = random.randint(2, 8)
+
         return (card_index, target, guess)
         
 
